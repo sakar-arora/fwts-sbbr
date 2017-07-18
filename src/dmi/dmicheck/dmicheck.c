@@ -742,7 +742,11 @@ static int dmicheck_test1(fwts_framework *fw)
 		smbios30_found = true;
 	}
 
-	if (!smbios_found && !smbios30_found) {
+	if (!smbios30_found) {
+		if (!(fw->flags & FWTS_FLAG_TEST_SBBR)) {
+			if (smbios_found)
+				return FWTS_OK;
+		}
 		fwts_failed(fw, LOG_LEVEL_HIGH,
 			"SMBIOSNoEntryPoint",
 			"Could not find any SMBIOS Table Entry Points.");
@@ -1768,7 +1772,7 @@ static void dmicheck_entry(fwts_framework *fw,
 
 			dmi_reserved_bits_check(fw, table, addr, "Base Addr Modifier/Interrupt Info", hdr, sizeof(uint8_t), 0x10, 2, 2);
 			dmi_reserved_bits_check(fw, table, addr, "Base Addr Modifier/Interrupt Info", hdr, sizeof(uint8_t), 0x10, 5, 5);
-			dmi_min_max_mask_uint8_check(fw, table, addr, "Base Addr Modifier/Interrupt Info)", hdr, 0x10, 0x1, 0x3, 6, 0x3);
+			dmi_min_max_mask_uint8_check(fw, table, addr, "Base Addr Modifier/Interrupt Info)", hdr, 0x10, 0x1, 0x2, 6, 0x3);
 			break;
 
 		case 39: /* 7.40 */
@@ -1996,6 +2000,9 @@ static int dmicheck_test2(fwts_framework *fw)
 	uint16_t version = 0;
 	uint8_t  *table;
 
+	if (fw->flags & FWTS_FLAG_TEST_SBBR)
+		return FWTS_OK;
+
 	if (!smbios_found) {
 		fwts_skipped(fw, "Cannot find SMBIOS or DMI table entry, skip the test.");
 		return FWTS_SKIP;
@@ -2059,10 +2066,122 @@ static int dmicheck_test3(fwts_framework *fw)
 	return FWTS_OK;
 }
 
+/*
+ * ARM SBBR SMBIOS Structure Test
+ */
+
+/* Test Entry Structure */
+typedef struct {
+	const char *name;
+	const uint8_t type;
+} sbbr_test_entry;
+
+/* Test Definition Array */
+sbbr_test_entry sbbr_test[] = {
+	{"BIOS Information", 0},
+	{"System Information", 1},
+	{"Baseboard Information", 2},
+	{"System Enclosure or Chassis", 3},
+	{"Processor Information", 4},
+	{"Cache Information", 7},
+	{"Port Connector Information", 8},
+	{"System Slots", 9},
+	{"OEM Strings", 11},
+	{"BIOS Language Information", 13},
+	{"System Event Log", 15},
+	{"Physical Memory Array", 16},
+	{"Memory Device", 17},
+	{"Memory Array Mapped Address", 19},
+	{"System Boot Information", 32},
+	{"IPMI Device Information", 38},
+	{"Onboard Devices Extended Information", 41},
+	{0, 0}
+};
+
+/* Finds SMBIOS structure of a given type in an SMBIOS30 table. */
+static uint8_t * sbbr_smbios30_locate_structure (uint8_t *table, const int table_max_length, uint8_t type)
+{
+	uint8_t *entry_data;
+	fwts_dmi_header *hdr;
+
+
+	entry_data = table;
+    while ( (entry_data != NULL) &&
+	(entry_data < (table + table_max_length)) )
+    {
+		hdr = (fwts_dmi_header *)(entry_data);
+
+		/* We found the entry we're looking for. */
+		if (hdr->type == type)
+			return hdr->data;
+
+		/* We found DMI end of table */
+		if (hdr->type == SMBIOS_END_OF_TABLE)
+			return NULL;
+
+		entry_data = entry_data + hdr->length;
+
+		while( *((int *)(entry_data)) != 0)
+		{
+			entry_data++;
+
+		}
+		entry_data += 2; /* Increment address to start of next structure */
+
+	}
+
+
+	return NULL;
+}
+
+/* SBBR SMBIOS structure test function. */
+static int dmicheck_test4(fwts_framework *fw)
+{
+	fwts_smbios30_entry entry30;
+	fwts_dmi_header hdr;
+	uint16_t version;
+	void *addr;
+	uint32_t i;
+	uint8_t *table;
+
+	if (!(fw->flags & FWTS_FLAG_TEST_SBBR))
+		return FWTS_OK;
+
+	/* Finding SMBIOS30 entry point. */
+	addr = fwts_smbios30_find_entry(fw, &entry30, &version);
+	if (addr == NULL) {
+		fwts_failed(fw, LOG_LEVEL_HIGH, "SbbrSmbiosNoTable", "Cannot find SMBIOS30 table "
+		            "entry.");
+		return FWTS_ERROR;
+	}
+
+	/* Getting SMBIOS table contents. */
+	table = dmi_table_smbios30(fw, &entry30);
+	if (table == NULL)
+		return FWTS_ERROR;
+
+	/* Searching for each SMBIOS structure needed by SBBR. */
+	for (i = 0; sbbr_test[i].name != NULL; i++) {
+
+		hdr.data = sbbr_smbios30_locate_structure (table, entry30.struct_table_max_size, sbbr_test[i].type);
+
+		if (hdr.data != NULL)
+			dmicheck_entry(fw, (uintptr_t)hdr.data, &hdr);
+		else
+			fwts_failed(fw, LOG_LEVEL_HIGH, "SbbrSmbiosNoStruct", "Cannot find SMBIOS "
+			            "structure: %s (Type %d)", sbbr_test[i].name, sbbr_test[i].type);
+	}
+
+	dmi_table_free(table);
+
+	return FWTS_OK;
+}
+
 static fwts_framework_minor_test dmicheck_tests[] = {
 	{ dmicheck_test1, "Find and test SMBIOS Table Entry Points." },
 	{ dmicheck_test2, "Test DMI/SMBIOS tables for errors." },
 	{ dmicheck_test3, "Test DMI/SMBIOS3 tables for errors." },
+	{ dmicheck_test4, "Test ARM SBBR SMBIOS structure requirements."},
 	{ NULL, NULL }
 };
 
@@ -2071,6 +2190,6 @@ static fwts_framework_ops dmicheck_ops = {
 	.minor_tests = dmicheck_tests
 };
 
-FWTS_REGISTER("dmicheck", &dmicheck_ops, FWTS_TEST_ANYTIME, FWTS_FLAG_BATCH | FWTS_FLAG_ROOT_PRIV)
+FWTS_REGISTER("dmicheck", &dmicheck_ops, FWTS_TEST_ANYTIME, FWTS_FLAG_BATCH | FWTS_FLAG_ROOT_PRIV | FWTS_FLAG_TEST_SBBR)
 
 #endif
