@@ -40,10 +40,7 @@ static int spcr_init(fwts_framework *fw)
 	}
 	if (table == NULL || (table && table->length == 0)) {
 		fwts_log_error(fw, "ACPI SPCR table does not exist, skipping test");
-		if ( fw->flags & FWTS_FLAG_TEST_SBBR)
-			return FWTS_ERROR;
-		else
-			return FWTS_SKIP;
+		return FWTS_SKIP;
 	}
 	spcr = (const fwts_acpi_table_spcr*)table->data;
 
@@ -55,38 +52,6 @@ static int spcr_init(fwts_framework *fw)
  *	https://msdn.microsoft.com/en-gb/library/windows/hardware/dn639132%28v=vs.85%29.aspx
  *	https://msdn.microsoft.com/en-us/library/windows/hardware/dn639131%28v=vs.85%29.aspx
  */
-static int sbbr_spcr_revision_test(fwts_framework *fw)
-{
-	if ( fw->flags & FWTS_FLAG_TEST_SBBR) {
-		const uint8_t SBBR_LATEST_REVISION = 2;
-
-		if (spcr->header.revision >= SBBR_LATEST_REVISION)
-			fwts_passed(fw, "SPCR revision is up to date.");
-		else
-			fwts_failed(fw, LOG_LEVEL_CRITICAL, "spcr_revision:", "SPCR revision is outdated: %d",
-					spcr->header.revision);
-
-	}
-
-	return FWTS_OK;
-}
-
-static int sbbr_spcr_gsiv_test(fwts_framework *fw)
-{
-	if ( fw->flags & FWTS_FLAG_TEST_SBBR) {
-		const uint8_t ARMH_GIC_INTR_MASK = 0x08;
-
-		if ( (spcr->interrupt_type == ARMH_GIC_INTR_MASK) &&
-		     (spcr->gsi            != 0x0000000000000000)    )
-			fwts_passed(fw, "SPCR appears to be populated with correct GSIV interrupt"
-						"routing information for ARM PL011 UART Device");
-		else
-			fwts_failed(fw, LOG_LEVEL_CRITICAL, "sbbr_gsiv:", "SPCR GSIV Information is set incorrectly.");
-	}
-
-	return FWTS_OK;
-}
-
 static int spcr_test1(fwts_framework *fw)
 {
 	char *str;
@@ -331,8 +296,6 @@ static int spcr_test1(fwts_framework *fw)
 
 static fwts_framework_minor_test spcr_tests[] = {
 	{ spcr_test1, "SPCR Serial Port Console Redirection Table test." },
-	{ sbbr_spcr_revision_test, "SPCR Revision Test." },
-	{ sbbr_spcr_gsiv_test, "SPCR GSIV Interrupt Test." },
 	{ NULL, NULL }
 };
 
@@ -342,6 +305,6 @@ static fwts_framework_ops spcr_ops = {
 	.minor_tests = spcr_tests
 };
 
-FWTS_REGISTER("spcr", &spcr_ops, FWTS_TEST_ANYTIME, FWTS_FLAG_BATCH | FWTS_FLAG_TEST_ACPI | FWTS_FLAG_TEST_SBBR)
+FWTS_REGISTER("spcr", &spcr_ops, FWTS_TEST_ANYTIME, FWTS_FLAG_BATCH | FWTS_FLAG_TEST_ACPI)
 
 #endif
