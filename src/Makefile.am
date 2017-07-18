@@ -97,6 +97,7 @@ fwts_SOURCES = main.c 				\
 	acpi/plddump/plddump.c			\
 	acpi/pmtt/pmtt.c 			\
 	acpi/rsdp/rsdp.c			\
+	sbbr/rsdp/rsdp.c			\
 	acpi/rsdt/rsdt.c			\
 	acpi/s3/s3.c 				\
 	acpi/s3power/s3power.c 			\
